@@ -20,11 +20,15 @@ app.get('*', (req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`\n======================================================`);
-  console.log(`🚀 Portfolio Server running on http://localhost:${PORT}`);
-  console.log(`✉️ Email Dispatch Target: ${NOTIFICATION_EMAIL}`);
-  console.log(`📡 API Health: http://localhost:${PORT}/api/health`);
-  console.log(`💼 Portfolio API: http://localhost:${PORT}/api/portfolio`);
-  console.log(`======================================================\n`);
-});
+module.exports = app;
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\n======================================================`);
+    console.log(`🚀 Portfolio Server running on http://localhost:${PORT}`);
+    console.log(`✉️ Email Dispatch Target: ${NOTIFICATION_EMAIL}`);
+    console.log(`📡 API Health: http://localhost:${PORT}/api/health`);
+    console.log(`💼 Portfolio API: http://localhost:${PORT}/api/portfolio`);
+    console.log(`======================================================\n`);
+  });
+}
