@@ -33,15 +33,61 @@ export default function WindowsLiveMail() {
     setSuccessMsg('');
 
     try {
-      const response = await fetch('/api/contact', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      const data = await response.json();
+      let isSuccess = false;
+      let replyMessage = '';
 
-      if (data.success) {
-        setSuccessMsg(data.message || 'Your message has been sent directly to Shubham (shubhamchakraborty0412@gmail.com).');
+      // 1. Try sending via backend /api/contact
+      try {
+        const response = await fetch('/api/contact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
+        });
+        const data = await response.json();
+        if (data.success && !data.needsActivation) {
+          isSuccess = true;
+          replyMessage = data.message;
+        } else if (data.needsActivation) {
+          setErrorMsg(data.message);
+          return;
+        }
+      } catch (apiErr) {
+        console.warn('Backend API submission note:', apiErr.message);
+      }
+
+      // 2. If backend didn't confirm delivery, seamlessly forward directly via FormSubmit
+      if (!isSuccess) {
+        try {
+          const directRes = await fetch('https://formsubmit.co/ajax/shubhamchakraborty0412@gmail.com', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+              name: formData.name,
+              email: formData.email,
+              role: formData.roleType,
+              _subject: `[Portfolio Message] ${formData.subject} - From ${formData.name}`,
+              message: formData.message,
+              _template: 'table'
+            })
+          });
+          const directData = await directRes.json();
+          if (directData.success === 'true' || directData.success === true) {
+            isSuccess = true;
+            replyMessage = `Thank you, ${formData.name}! Your message has been sent directly to Shubham's email (shubhamchakraborty0412@gmail.com).`;
+          } else if (directData.message && directData.message.toLowerCase().includes('activation')) {
+            setErrorMsg(directData.message);
+            return;
+          }
+        } catch (directErr) {
+          console.warn('Direct FormSubmit note:', directErr.message);
+        }
+      }
+
+      if (isSuccess) {
+        setSuccessMsg(replyMessage || 'Your message has been sent directly to Shubham (shubhamchakraborty0412@gmail.com).');
         setFormData({
           name: '',
           email: '',
@@ -56,7 +102,7 @@ export default function WindowsLiveMail() {
           origin: { y: 0.6 }
         });
       } else {
-        setErrorMsg(data.message || 'Failed to transmit message.');
+        setErrorMsg('Could not deliver email. Please email directly to shubhamchakraborty0412@gmail.com');
       }
     } catch (err) {
       setErrorMsg('Connection failed. You can also write directly to shubhamchakraborty0412@gmail.com');
