@@ -1,0 +1,37 @@
+{
+  "name": "eportfolio",
+  "version": "1.0.0",
+  "description": "Windows 7 Themed E-Portfolio for Shubham Chakraborty",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"cyan,magenta\" \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "start": "npm run start --prefix server",
+    "build": "npm install --prefix client && npm run build --prefix client",
+    "vercel-build": "npm install --prefix client && npm run build --prefix client"
+  },
+  "keywords": [
+    "portfolio",
+    "windows7",
+    "react",
+    "express",
+    "node",
+    "ai-ml",
+    "shubham-chakraborty"
+  ],
+  "author": "Shubham Chakraborty",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "nodemailer": "^10.1.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
