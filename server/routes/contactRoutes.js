@@ -60,7 +60,7 @@ async function sendViaNodemailer(contactData) {
 // Helper to send via FormSubmit HTTP API
 async function sendViaFormSubmit(contactData, originUrl) {
   try {
-    const origin = originUrl ? originUrl.replace(/\/+$/, '') : 'https://eportfolio-final-g4c3u1rl0.vercel.app';
+    const origin = originUrl ? originUrl.replace(/\/+$/, '') : 'https://eportfolio-final-kappa.vercel.app';
     const response = await fetch(`https://formsubmit.co/ajax/${TARGET_EMAIL}`, {
       method: 'POST',
       headers: {
