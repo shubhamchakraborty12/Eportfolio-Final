@@ -7,13 +7,13 @@ const TARGET_EMAIL = 'shubhamchakraborty0412@gmail.com';
 // Local in-memory log of recent submissions
 const recentSubmissions = [];
 
-// Helper to send via Nodemailer if SMTP credentials are provided in .env
+// Helper to send via Nodemailer if SMTP credentials are provided in environment variables
 async function sendViaNodemailer(contactData) {
   const user = process.env.EMAIL_USER || process.env.GMAIL_USER;
   const pass = process.env.EMAIL_PASS || process.env.GMAIL_PASS || process.env.EMAIL_PASSWORD;
 
   if (!user || !pass) {
-    return { sent: false, reason: 'No SMTP credentials in .env' };
+    return { sent: false, reason: 'No SMTP credentials in environment variables' };
   }
 
   const transporter = nodemailer.createTransport({
@@ -30,7 +30,7 @@ async function sendViaNodemailer(contactData) {
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #c0d1e5; border-radius: 6px; overflow: hidden;">
         <div style="background: linear-gradient(to bottom, #2b78e4, #0052cc); color: white; padding: 16px 20px;">
           <h2 style="margin: 0; font-size: 18px;">New Contact Inquiry Received</h2>
-          <p style="margin: 4px 0 0 0; font-size: 12px; opacity: 0.9;">Windows 7 E-Portfolio System Notification</p>
+          <p style="margin: 4px 0 0 0; font-size: 12px; opacity: 0.9;">Windows 7 E-Portfolio Notification</p>
         </div>
         <div style="padding: 20px; background: #ffffff;">
           <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
@@ -58,15 +58,16 @@ async function sendViaNodemailer(contactData) {
 }
 
 // Helper to send via FormSubmit HTTP API
-async function sendViaFormSubmit(contactData) {
+async function sendViaFormSubmit(contactData, originUrl) {
   try {
+    const origin = originUrl ? originUrl.replace(/\/+$/, '') : 'https://eportfolio-final-g4c3u1rl0.vercel.app';
     const response = await fetch(`https://formsubmit.co/ajax/${TARGET_EMAIL}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'Origin': 'http://localhost:5173',
-        'Referer': 'http://localhost:5173/'
+        'Origin': origin,
+        'Referer': origin + '/'
       },
       body: JSON.stringify({
         name: contactData.name,
@@ -78,7 +79,14 @@ async function sendViaFormSubmit(contactData) {
       })
     });
     const result = await response.json();
-    return { success: true, result };
+    const isSuccess = result.success === true || result.success === 'true';
+    const needsActivation = result.message && result.message.toLowerCase().includes('activation');
+    return {
+      success: isSuccess,
+      needsActivation,
+      message: result.message,
+      result
+    };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -112,47 +120,70 @@ router.post('/contact', async (req, res) => {
     recentSubmissions.unshift(contactData);
     if (recentSubmissions.length > 50) recentSubmissions.pop();
 
-    console.log(`📨 New contact submission from ${contactData.name} (${contactData.email}). Delivering to ${TARGET_EMAIL}...`);
+    console.log(`📨 Contact submission from ${contactData.name} (${contactData.email}). Target: ${TARGET_EMAIL}`);
 
     let emailDelivered = false;
     let deliveryMethod = 'none';
+    let activationWarning = null;
 
-    // 1. Try Nodemailer if SMTP credentials configured in .env
+    // 1. Try Nodemailer if SMTP credentials configured in Vercel environment variables
     try {
       const nodeMailerResult = await sendViaNodemailer(contactData);
       if (nodeMailerResult.sent) {
         emailDelivered = true;
         deliveryMethod = 'nodemailer';
-        console.log('✅ Delivered via Nodemailer SMTP to', TARGET_EMAIL);
+        console.log('✅ Delivered directly via Gmail SMTP to', TARGET_EMAIL);
       }
     } catch (smtpErr) {
       console.warn('⚠️ Nodemailer notice:', smtpErr.message);
     }
 
-    // 2. Also forward via FormSubmit to ensure delivery directly to shubhamchakraborty0412@gmail.com
+    // 2. Try FormSubmit webhook
+    const requestOrigin = req.headers.origin || req.headers.referer;
     try {
-      const formSubmitResult = await sendViaFormSubmit(contactData);
+      const formSubmitResult = await sendViaFormSubmit(contactData, requestOrigin);
       if (formSubmitResult.success) {
         emailDelivered = true;
         if (deliveryMethod === 'none') deliveryMethod = 'formsubmit';
         console.log('✅ Dispatched via FormSubmit to', TARGET_EMAIL);
+      } else if (formSubmitResult.needsActivation) {
+        activationWarning = formSubmitResult.message;
+        console.warn('⚠️ FormSubmit requires one-time activation click on', TARGET_EMAIL);
       }
     } catch (fsErr) {
       console.warn('⚠️ FormSubmit dispatch notice:', fsErr.message);
     }
 
-    return res.status(200).json({
-      success: true,
-      message: `Thank you, ${contactData.name}! Your message has been sent directly to Shubham's email (${TARGET_EMAIL}).`,
-      targetEmail: TARGET_EMAIL,
-      deliveryMethod: deliveryMethod,
-      timestamp: new Date().toISOString()
+    if (emailDelivered) {
+      return res.status(200).json({
+        success: true,
+        message: `Thank you, ${contactData.name}! Your message has been sent directly to Shubham's email (${TARGET_EMAIL}).`,
+        targetEmail: TARGET_EMAIL,
+        deliveryMethod: deliveryMethod,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (activationWarning) {
+      return res.status(200).json({
+        success: true,
+        needsActivation: true,
+        message: `Action Required: FormSubmit sent an activation link to ${TARGET_EMAIL}. Please check your Inbox (or Spam/Promotions folder) and click 'Activate Form' once to enable automatic email delivery!`,
+        targetEmail: TARGET_EMAIL,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: `Could not deliver email. Please email directly to ${TARGET_EMAIL} or configure SMTP credentials in Vercel.`,
+      targetEmail: TARGET_EMAIL
     });
   } catch (error) {
     console.error('Contact processing error:', error);
     return res.status(500).json({
       success: false,
-      message: `Failed to transmit message. You can also write directly to ${TARGET_EMAIL}`,
+      message: `Failed to transmit message. You can write directly to ${TARGET_EMAIL}`,
       error: error.message
     });
   }
