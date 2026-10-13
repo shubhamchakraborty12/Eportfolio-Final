@@ -8,6 +8,7 @@ const contactRoutes = require('./routes/contactRoutes');
 const interactionRoutes = require('./routes/interactionRoutes');
 
 const app = express();
+app.set('trust proxy', true);
 const NOTIFICATION_EMAIL = process.env.NOTIFICATION_EMAIL || 'shubhamchakraborty0412@gmail.com';
 
 // Middlewares

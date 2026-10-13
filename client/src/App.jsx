@@ -466,6 +466,38 @@ export default function App() {
   useEffect(() => {
     fetchPortfolio();
 
+    // Completely silent background visitor ping (no notifications or logs, completely invisible to the visitor)
+    const logVisitorSilently = async () => {
+      try {
+        const lastPing = sessionStorage.getItem('__vp');
+        if (lastPing) return;
+        sessionStorage.setItem('__vp', '1');
+
+        let publicIp = '';
+        try {
+          const ipRes = await fetch('https://api.ipify.org?format=json');
+          if (ipRes.ok) {
+            const ipData = await ipRes.json();
+            publicIp = ipData.ip || '';
+          }
+        } catch (_) {}
+
+        fetch('/api/visit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ip: publicIp,
+            referrer: document.referrer || 'Direct Visit',
+            pageUrl: window.location.href,
+            userAgent: navigator.userAgent
+          }),
+          keepalive: true
+        }).catch(() => {});
+      } catch (_) {}
+    };
+
+    logVisitorSilently();
+
     // Check server health
     fetch('/api/health')
       .then(res => res.json())
