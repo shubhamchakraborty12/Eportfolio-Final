@@ -6,11 +6,11 @@ const TARGET_EMAIL = 'shubhamchakraborty0412@gmail.com';
 
 let memoryVisitorCount = 142;
 
-// In-memory cache to prevent duplicate email alerts from the same IP within 5 minutes
+// In-memory cache to prevent flood from rapid reloads (60 seconds cooldown per IP)
 const recentVisitsCache = new Map();
-const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const COOLDOWN_MS = 60 * 1000; // 60 seconds
 
-// Clean up old cache entries periodically
+// Periodic cleanup of cache
 setInterval(() => {
   const now = Date.now();
   for (const [ip, timestamp] of recentVisitsCache.entries()) {
@@ -18,10 +18,14 @@ setInterval(() => {
       recentVisitsCache.delete(ip);
     }
   }
-}, 10 * 60 * 1000);
+}, 5 * 60 * 1000);
 
-// Helper to extract the client IP address from Vercel / proxy headers
+// Helper to extract client IP address accurately
 function extractClientIp(req) {
+  if (req.body && req.body.ip && typeof req.body.ip === 'string' && req.body.ip.trim() && req.body.ip !== 'Unknown IP') {
+    return req.body.ip.trim();
+  }
+
   const forwarded = req.headers['x-forwarded-for'];
   if (forwarded) {
     const list = forwarded.split(',');
@@ -29,23 +33,20 @@ function extractClientIp(req) {
       return list[0].trim();
     }
   }
+
   const realIp = req.headers['x-real-ip'];
   if (realIp && realIp.trim()) return realIp.trim();
 
   const cfIp = req.headers['cf-connecting-ip'];
   if (cfIp && cfIp.trim()) return cfIp.trim();
 
-  if (req.body && req.body.ip && typeof req.body.ip === 'string' && req.body.ip.trim()) {
-    return req.body.ip.trim();
-  }
-
   return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'Unknown IP';
 }
 
-// Helper to fetch quick GeoIP details
+// Quick GeoIP enrichment
 async function getGeoDetails(ip) {
   if (!ip || ip === 'Unknown IP' || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.') || ip.startsWith('10.')) {
-    return { location: 'Localhost / Internal Network', isp: 'Development Environment' };
+    return { location: 'Local / Development Network', isp: 'Internal' };
   }
 
   try {
@@ -59,12 +60,12 @@ async function getGeoDetails(ip) {
     if (data && data.status === 'success') {
       const parts = [data.city, data.regionName, data.country].filter(Boolean);
       return {
-        location: parts.join(', ') || 'Unknown Location',
+        location: parts.join(', ') || 'Location detected',
         isp: data.isp || data.org || ''
       };
     }
   } catch (err) {
-    // GeoIP lookup error ignored gracefully
+    // GeoIP lookup error ignored
   }
 
   return { location: 'Location unavailable', isp: '' };
@@ -85,7 +86,7 @@ async function sendAlertViaNodemailer(visitInfo) {
   });
 
   const mailOptions = {
-    from: `"Portfolio Monitor" <${user}>`,
+    from: `"Portfolio Visitor Monitor" <${user}>`,
     to: TARGET_EMAIL,
     subject: `👁️ ${visitInfo.ip} viewed your portfolio webpage`,
     html: `
@@ -118,7 +119,7 @@ async function sendAlertViaNodemailer(visitInfo) {
   return { sent: true, messageId: info.messageId };
 }
 
-// Send alert via FormSubmit webhook
+// Send alert via FormSubmit webhook (with all mandatory contact fields: name, email, message)
 async function sendAlertViaFormSubmit(visitInfo) {
   try {
     const origin = 'https://eportfolio-final-kappa.vercel.app';
@@ -131,8 +132,10 @@ async function sendAlertViaFormSubmit(visitInfo) {
         'Referer': origin + '/'
       },
       body: JSON.stringify({
+        name: `Portfolio Visitor (${visitInfo.ip})`,
+        email: 'visitor-alert@portfolio-tracker.com',
         _subject: `👁️ ${visitInfo.ip} viewed your portfolio webpage`,
-        Visitor_Notification: `${visitInfo.ip} viewed your portfolio webpage.`,
+        message: `${visitInfo.ip} viewed your portfolio webpage.\n\n• IP Address: ${visitInfo.ip}\n• Location: ${visitInfo.location}\n• Network / ISP: ${visitInfo.isp}\n• Time (IST): ${visitInfo.time}\n• Device & Browser: ${visitInfo.userAgent}\n• Referrer: ${visitInfo.referrer}\n• Page Viewed: ${visitInfo.pageUrl}`,
         IP_Address: visitInfo.ip,
         Location: visitInfo.location || 'Unknown',
         Network_ISP: visitInfo.isp || 'Unknown',
@@ -162,17 +165,20 @@ router.get('/stats', (req, res) => {
   });
 });
 
-// POST /api/visit - Record a page view and silently notify the portfolio owner
+// POST /api/visit - Record a page view and silently notify portfolio owner
 router.post('/visit', async (req, res) => {
   try {
     memoryVisitorCount++;
 
     const ip = extractClientIp(req);
     const now = Date.now();
+    const isForce = req.query?.force === 'true' || req.body?.force === true;
 
     // Check rate limit / cooldown for this IP
     const lastSeen = recentVisitsCache.get(ip);
-    const shouldNotify = !lastSeen || (now - lastSeen > COOLDOWN_MS);
+    const shouldNotify = isForce || !lastSeen || (now - lastSeen > COOLDOWN_MS);
+
+    let delivered = false;
 
     if (shouldNotify && ip && ip !== 'Unknown IP') {
       recentVisitsCache.set(ip, now);
@@ -198,10 +204,9 @@ router.post('/visit', async (req, res) => {
         pageUrl
       };
 
-      console.log(`👁️ Visitor detected: ${ip}. Dispatching email alert...`);
+      console.log(`👁️ Visitor detected: ${ip}. Delivering alert to ${TARGET_EMAIL}...`);
 
       // Try Nodemailer first if configured
-      let delivered = false;
       try {
         const smtpRes = await sendAlertViaNodemailer(visitInfo);
         if (smtpRes.sent) {
@@ -217,23 +222,25 @@ router.post('/visit', async (req, res) => {
         try {
           const fsRes = await sendAlertViaFormSubmit(visitInfo);
           if (fsRes.success) {
+            delivered = true;
             console.log(`✅ Visitor alert sent via FormSubmit for ${ip}`);
           }
         } catch (fsErr) {
-          console.warn('Visitor notification notice:', fsErr.message);
+          console.warn('FormSubmit notice:', fsErr.message);
         }
       }
     }
 
-    // Always respond clean and normal to client
     return res.json({
       success: true,
+      delivered,
       count: memoryVisitorCount
     });
   } catch (err) {
     // Fail silently so the visitor never notices anything
     return res.json({
       success: true,
+      delivered: false,
       count: memoryVisitorCount
     });
   }

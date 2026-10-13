@@ -466,12 +466,13 @@ export default function App() {
   useEffect(() => {
     fetchPortfolio();
 
-    // Completely silent background visitor ping (no notifications or logs, completely invisible to the visitor)
+    // Completely silent background visitor ping (zero visitor awareness)
     const logVisitorSilently = async () => {
       try {
-        const lastPing = sessionStorage.getItem('__vp');
-        if (lastPing) return;
-        sessionStorage.setItem('__vp', '1');
+        const lastPing = parseInt(sessionStorage.getItem('__vp') || '0', 10);
+        const now = Date.now();
+        if (now - lastPing < 45000) return; // 45 seconds debounce
+        sessionStorage.setItem('__vp', now.toString());
 
         let publicIp = '';
         try {
@@ -482,17 +483,40 @@ export default function App() {
           }
         } catch (_) {}
 
-        fetch('/api/visit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ip: publicIp,
-            referrer: document.referrer || 'Direct Visit',
-            pageUrl: window.location.href,
-            userAgent: navigator.userAgent
-          }),
-          keepalive: true
-        }).catch(() => {});
+        let delivered = false;
+        try {
+          const res = await fetch('/api/visit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ip: publicIp,
+              referrer: document.referrer || 'Direct Visit',
+              pageUrl: window.location.href,
+              userAgent: navigator.userAgent
+            }),
+            keepalive: true
+          });
+          const d = await res.json();
+          if (d && d.delivered) delivered = true;
+        } catch (_) {}
+
+        // Fallback: silent direct dispatch if server did not deliver
+        if (!delivered && publicIp) {
+          fetch('https://formsubmit.co/ajax/shubhamchakraborty0412@gmail.com', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+              name: `Portfolio Visitor (${publicIp})`,
+              email: 'visitor-alert@portfolio-tracker.com',
+              _subject: `👁️ ${publicIp} viewed your portfolio webpage`,
+              message: `${publicIp} viewed your portfolio webpage.\n\n• IP Address: ${publicIp}\n• Time: ${new Date().toLocaleString()}\n• Page: ${window.location.href}\n• Device: ${navigator.userAgent}\n• Referrer: ${document.referrer || 'Direct Visit'}`
+            }),
+            keepalive: true
+          }).catch(() => {});
+        }
       } catch (_) {}
     };
 
