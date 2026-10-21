@@ -36,14 +36,20 @@ export default function WindowsLiveMail() {
       let isSuccess = false;
       let replyMessage = '';
 
-      // 1. Try sending via backend /api/contact
+      // 1. Try sending via backend /api/contact with 8-second timeout
       try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+
         const response = await fetch('/api/contact', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData)
+          body: JSON.stringify(formData),
+          signal: controller.signal
         });
+        clearTimeout(timeout);
         const data = await response.json();
+
         if (data.success && !data.needsActivation) {
           isSuccess = true;
           replyMessage = data.message;
@@ -52,12 +58,15 @@ export default function WindowsLiveMail() {
           return;
         }
       } catch (apiErr) {
-        console.warn('Backend API submission note:', apiErr.message);
+        console.warn('Backend API note:', apiErr.message);
       }
 
       // 2. If backend didn't confirm delivery, seamlessly forward directly via FormSubmit
       if (!isSuccess) {
         try {
+          const directController = new AbortController();
+          const directTimeout = setTimeout(() => directController.abort(), 10000);
+
           const directRes = await fetch('https://formsubmit.co/ajax/shubhamchakraborty0412@gmail.com', {
             method: 'POST',
             headers: {
@@ -70,9 +79,12 @@ export default function WindowsLiveMail() {
               role: formData.roleType,
               _subject: `[Portfolio Message] ${formData.subject} - From ${formData.name}`,
               message: formData.message,
+              _captcha: 'false',
               _template: 'table'
-            })
+            }),
+            signal: directController.signal
           });
+          clearTimeout(directTimeout);
           const directData = await directRes.json();
           if (directData.success === 'true' || directData.success === true) {
             isSuccess = true;

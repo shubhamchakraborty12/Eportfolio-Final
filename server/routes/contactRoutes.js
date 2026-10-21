@@ -58,9 +58,12 @@ async function sendViaNodemailer(contactData) {
 }
 
 // Helper to send via FormSubmit HTTP API
-async function sendViaFormSubmit(contactData, originUrl) {
+async function sendViaFormSubmit(contactData) {
   try {
-    const origin = originUrl ? originUrl.replace(/\/+$/, '') : 'https://eportfolio-final-kappa.vercel.app';
+    const origin = 'https://eportfolio-final-kappa.vercel.app';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
+
     const response = await fetch(`https://formsubmit.co/ajax/${TARGET_EMAIL}`, {
       method: 'POST',
       headers: {
@@ -75,9 +78,13 @@ async function sendViaFormSubmit(contactData, originUrl) {
         role: contactData.roleType,
         _subject: `[Portfolio Message] ${contactData.subject} - From ${contactData.name}`,
         message: contactData.message,
+        _captcha: 'false',
         _template: 'table'
-      })
+      }),
+      signal: controller.signal
     });
+
+    clearTimeout(timeout);
     const result = await response.json();
     const isSuccess = result.success === true || result.success === 'true';
     const needsActivation = result.message && result.message.toLowerCase().includes('activation');
@@ -139,9 +146,8 @@ router.post('/contact', async (req, res) => {
     }
 
     // 2. Try FormSubmit webhook
-    const requestOrigin = req.headers.origin || req.headers.referer;
     try {
-      const formSubmitResult = await sendViaFormSubmit(contactData, requestOrigin);
+      const formSubmitResult = await sendViaFormSubmit(contactData);
       if (formSubmitResult.success) {
         emailDelivered = true;
         if (deliveryMethod === 'none') deliveryMethod = 'formsubmit';

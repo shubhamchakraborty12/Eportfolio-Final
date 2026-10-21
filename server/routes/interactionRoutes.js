@@ -3,6 +3,7 @@ const router = express.Router();
 const nodemailer = require('nodemailer');
 
 const TARGET_EMAIL = 'shubhamchakraborty0412@gmail.com';
+const PRODUCTION_ORIGIN = 'https://eportfolio-final-kappa.vercel.app';
 
 let memoryVisitorCount = 142;
 
@@ -20,55 +21,109 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-// Helper to extract client IP address accurately
+// Helper to determine if an IP is a private/internal/local address
+function isPrivateIp(ip) {
+  if (!ip || typeof ip !== 'string') return true;
+  const clean = ip.replace(/^::ffff:/, '').trim().toLowerCase();
+  if (clean === '127.0.0.1' || clean === '::1' || clean === 'localhost') return true;
+  if (clean.startsWith('10.') || clean.startsWith('192.168.')) return true;
+  if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(clean)) return true;
+  if (clean.startsWith('169.254.')) return true; // Link-local
+  if (clean.startsWith('fc00:') || clean.startsWith('fe80:') || clean.startsWith('fd')) return true; // IPv6 local
+  return false;
+}
+
+// Helper to extract the genuine client IP address
 function extractClientIp(req) {
-  if (req.body && req.body.ip && typeof req.body.ip === 'string' && req.body.ip.trim() && req.body.ip !== 'Unknown IP') {
-    return req.body.ip.trim();
+  // 1. Check Vercel edge real-ip
+  const realIp = req.headers['x-real-ip'];
+  if (realIp && typeof realIp === 'string' && !isPrivateIp(realIp)) {
+    return realIp.trim().replace(/^::ffff:/, '');
   }
 
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) {
-    const list = forwarded.split(',');
-    if (list.length > 0 && list[0].trim()) {
-      return list[0].trim();
+  // 2. Check x-vercel-forwarded-for
+  const vercelForwarded = req.headers['x-vercel-forwarded-for'];
+  if (vercelForwarded && typeof vercelForwarded === 'string') {
+    const parts = vercelForwarded.split(',').map(s => s.trim().replace(/^::ffff:/, ''));
+    for (const p of parts) {
+      if (p && !isPrivateIp(p)) return p;
     }
   }
 
-  const realIp = req.headers['x-real-ip'];
-  if (realIp && realIp.trim()) return realIp.trim();
+  // 3. Check client-reported public IP (from ipwho.is / api64.ipify.org)
+  if (req.body && req.body.ip && typeof req.body.ip === 'string') {
+    const candidate = req.body.ip.trim().replace(/^::ffff:/, '');
+    if (candidate && candidate !== 'Unknown IP' && !isPrivateIp(candidate)) {
+      return candidate;
+    }
+  }
 
+  // 4. Check standard x-forwarded-for (first non-private IP in chain)
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded && typeof forwarded === 'string') {
+    const parts = forwarded.split(',').map(s => s.trim().replace(/^::ffff:/, ''));
+    for (const p of parts) {
+      if (p && !isPrivateIp(p)) return p;
+    }
+  }
+
+  // 5. Check Cloudflare connecting-ip if applicable
   const cfIp = req.headers['cf-connecting-ip'];
-  if (cfIp && cfIp.trim()) return cfIp.trim();
+  if (cfIp && typeof cfIp === 'string' && !isPrivateIp(cfIp)) {
+    return cfIp.trim().replace(/^::ffff:/, '');
+  }
 
-  return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'Unknown IP';
+  const fallback = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress;
+  return fallback ? fallback.replace(/^::ffff:/, '') : 'Unknown IP';
 }
 
-// Quick GeoIP enrichment
-async function getGeoDetails(ip) {
-  if (!ip || ip === 'Unknown IP' || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.') || ip.startsWith('10.')) {
+// Fast GeoIP enrichment with Vercel edge headers preference
+async function getGeoDetails(ip, req) {
+  // 1. Try Vercel's native edge headers first (instant, 100% accurate, no external API call)
+  const vCity = req.headers['x-vercel-ip-city'];
+  const vRegion = req.headers['x-vercel-ip-country-region'];
+  const vCountry = req.headers['x-vercel-ip-country'];
+  if (vCity || vCountry) {
+    const parts = [vCity ? decodeURIComponent(vCity) : '', vRegion, vCountry].filter(Boolean);
+    return {
+      location: parts.join(', ') || 'Location detected',
+      isp: 'Vercel Edge Network'
+    };
+  }
+
+  // 2. Check if client gathered geo info
+  if (req.body && (req.body.location || req.body.city)) {
+    const parts = [req.body.city, req.body.region, req.body.country].filter(Boolean);
+    return {
+      location: req.body.location || parts.join(', ') || 'Location detected',
+      isp: req.body.isp || ''
+    };
+  }
+
+  // 3. If local or private IP, return dev network
+  if (isPrivateIp(ip)) {
     return { location: 'Local / Development Network', isp: 'Internal' };
   }
 
+  // 4. Fallback lookup via ipwho.is with 2.5s strict timeout
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,regionName,city,isp,org`, {
-      signal: controller.signal
-    });
+    const timeout = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`https://ipwho.is/${ip}`, { signal: controller.signal });
     clearTimeout(timeout);
     const data = await res.json();
-    if (data && data.status === 'success') {
-      const parts = [data.city, data.regionName, data.country].filter(Boolean);
+    if (data && data.success) {
+      const parts = [data.city, data.region, data.country].filter(Boolean);
       return {
         location: parts.join(', ') || 'Location detected',
-        isp: data.isp || data.org || ''
+        isp: data.connection?.isp || data.connection?.org || ''
       };
     }
   } catch (err) {
     // GeoIP lookup error ignored
   }
 
-  return { location: 'Location unavailable', isp: '' };
+  return { location: 'Location detected', isp: '' };
 }
 
 // Send alert via Nodemailer if SMTP configured
@@ -119,17 +174,19 @@ async function sendAlertViaNodemailer(visitInfo) {
   return { sent: true, messageId: info.messageId };
 }
 
-// Send alert via FormSubmit webhook (with all mandatory contact fields: name, email, message)
+// Send alert via FormSubmit webhook with 6-second timeout & _captcha: 'false'
 async function sendAlertViaFormSubmit(visitInfo) {
   try {
-    const origin = 'https://eportfolio-final-kappa.vercel.app';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
     const response = await fetch(`https://formsubmit.co/ajax/${TARGET_EMAIL}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'Origin': origin,
-        'Referer': origin + '/'
+        'Origin': PRODUCTION_ORIGIN,
+        'Referer': PRODUCTION_ORIGIN + '/'
       },
       body: JSON.stringify({
         name: `Portfolio Visitor (${visitInfo.ip})`,
@@ -143,9 +200,13 @@ async function sendAlertViaFormSubmit(visitInfo) {
         Device_Browser: visitInfo.userAgent,
         Referrer: visitInfo.referrer,
         Page_URL: visitInfo.pageUrl,
+        _captcha: 'false',
         _template: 'table'
-      })
+      }),
+      signal: controller.signal
     });
+
+    clearTimeout(timeout);
     const result = await response.json();
     return { success: result.success === 'true' || result.success === true, result };
   } catch (err) {
@@ -183,10 +244,10 @@ router.post('/visit', async (req, res) => {
     if (shouldNotify && ip && ip !== 'Unknown IP') {
       recentVisitsCache.set(ip, now);
 
-      const geo = await getGeoDetails(ip);
+      const geo = await getGeoDetails(ip, req);
       const userAgent = req.headers['user-agent'] || req.body?.userAgent || 'Unknown Device/Browser';
       const referrer = req.headers['referer'] || req.body?.referrer || 'Direct Visit';
-      const pageUrl = req.body?.pageUrl || 'https://eportfolio-final-kappa.vercel.app/';
+      const pageUrl = req.body?.pageUrl || PRODUCTION_ORIGIN;
 
       const istTime = new Date().toLocaleString('en-IN', {
         timeZone: 'Asia/Kolkata',
@@ -234,7 +295,8 @@ router.post('/visit', async (req, res) => {
     return res.json({
       success: true,
       delivered,
-      count: memoryVisitorCount
+      count: memoryVisitorCount,
+      detectedIp: ip
     });
   } catch (err) {
     // Fail silently so the visitor never notices anything

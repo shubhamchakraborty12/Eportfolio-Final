@@ -475,13 +475,35 @@ export default function App() {
         sessionStorage.setItem('__vp', now.toString());
 
         let publicIp = '';
+        let clientGeo = null;
+
+        // 1. Try ipwho.is first (fast, returns IPv4/IPv6, city, region, country, isp)
         try {
-          const ipRes = await fetch('https://api.ipify.org?format=json');
+          const ipRes = await fetch('https://ipwho.is/', { cache: 'no-store' });
           if (ipRes.ok) {
-            const ipData = await ipRes.json();
-            publicIp = ipData.ip || '';
+            const data = await ipRes.json();
+            if (data && data.success) {
+              publicIp = data.ip || '';
+              clientGeo = {
+                city: data.city,
+                region: data.region,
+                country: data.country,
+                isp: data.connection?.isp || data.connection?.org
+              };
+            }
           }
         } catch (_) {}
+
+        // 2. Fallback to api64.ipify.org if ipwho.is was blocked
+        if (!publicIp) {
+          try {
+            const ipRes2 = await fetch('https://api64.ipify.org?format=json', { cache: 'no-store' });
+            if (ipRes2.ok) {
+              const data2 = await ipRes2.json();
+              publicIp = data2.ip || '';
+            }
+          } catch (_) {}
+        }
 
         let delivered = false;
         try {
@@ -490,6 +512,10 @@ export default function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               ip: publicIp,
+              city: clientGeo?.city,
+              region: clientGeo?.region,
+              country: clientGeo?.country,
+              isp: clientGeo?.isp,
               referrer: document.referrer || 'Direct Visit',
               pageUrl: window.location.href,
               userAgent: navigator.userAgent
@@ -502,6 +528,7 @@ export default function App() {
 
         // Fallback: silent direct dispatch if server did not deliver
         if (!delivered && publicIp) {
+          const locationStr = clientGeo ? [clientGeo.city, clientGeo.region, clientGeo.country].filter(Boolean).join(', ') : 'Location detected';
           fetch('https://formsubmit.co/ajax/shubhamchakraborty0412@gmail.com', {
             method: 'POST',
             headers: {
@@ -512,7 +539,9 @@ export default function App() {
               name: `Portfolio Visitor (${publicIp})`,
               email: 'visitor-alert@portfolio-tracker.com',
               _subject: `👁️ ${publicIp} viewed your portfolio webpage`,
-              message: `${publicIp} viewed your portfolio webpage.\n\n• IP Address: ${publicIp}\n• Time: ${new Date().toLocaleString()}\n• Page: ${window.location.href}\n• Device: ${navigator.userAgent}\n• Referrer: ${document.referrer || 'Direct Visit'}`
+              message: `${publicIp} viewed your portfolio webpage.\n\n• IP Address: ${publicIp}\n• Location: ${locationStr}\n• Network / ISP: ${clientGeo?.isp || 'Unknown'}\n• Time: ${new Date().toLocaleString()}\n• Page: ${window.location.href}\n• Device: ${navigator.userAgent}\n• Referrer: ${document.referrer || 'Direct Visit'}`,
+              _captcha: 'false',
+              _template: 'table'
             }),
             keepalive: true
           }).catch(() => {});

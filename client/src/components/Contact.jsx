@@ -47,15 +47,73 @@ export default function Contact() {
     setSuccessMsg('');
 
     try {
-      const response = await fetch('/api/contact', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      const data = await response.json();
+      let isSuccess = false;
+      let replyMessage = '';
 
-      if (data.success) {
-        setSuccessMsg(data.message || 'Inquiry successfully transmitted and logged in MongoDB.');
+      // 1. Try sending via backend /api/contact with 8-second timeout
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+
+        const response = await fetch('/api/contact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        const data = await response.json();
+
+        if (data.success && !data.needsActivation) {
+          isSuccess = true;
+          replyMessage = data.message;
+        } else if (data.needsActivation) {
+          setErrorMsg(data.message);
+          return;
+        }
+      } catch (apiErr) {
+        console.warn('Backend API note:', apiErr.message);
+      }
+
+      // 2. Direct FormSubmit fallback with _captcha: false
+      if (!isSuccess) {
+        try {
+          const directController = new AbortController();
+          const directTimeout = setTimeout(() => directController.abort(), 10000);
+
+          const directRes = await fetch('https://formsubmit.co/ajax/shubhamchakraborty0412@gmail.com', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+              name: formData.name,
+              email: formData.email,
+              role: formData.roleType,
+              _subject: `[Portfolio Message] ${formData.subject || 'Inquiry'} - From ${formData.name}`,
+              message: formData.message,
+              _captcha: 'false',
+              _template: 'table'
+            }),
+            signal: directController.signal
+          });
+          clearTimeout(directTimeout);
+          const directData = await directRes.json();
+          if (directData.success === 'true' || directData.success === true) {
+            isSuccess = true;
+            replyMessage = `Thank you, ${formData.name}! Your message has been sent directly to Shubham (shubhamchakraborty0412@gmail.com).`;
+          } else if (directData.message && directData.message.toLowerCase().includes('activation')) {
+            setErrorMsg(directData.message);
+            return;
+          }
+        } catch (directErr) {
+          console.warn('Direct FormSubmit note:', directErr.message);
+        }
+      }
+
+      if (isSuccess) {
+        setSuccessMsg(replyMessage || 'Your message has been sent directly to Shubham (shubhamchakraborty0412@gmail.com).');
         setFormData({
           name: '',
           email: '',
@@ -69,12 +127,8 @@ export default function Contact() {
           spread: 60,
           origin: { y: 0.7 }
         });
-
-        if (showDbMessages) {
-          fetchDbMessages();
-        }
       } else {
-        setErrorMsg(data.message || 'Failed to transmit inquiry.');
+        setErrorMsg('Could not deliver email. Please email directly to shubhamchakraborty0412@gmail.com');
       }
     } catch (err) {
       setErrorMsg('Network error. You may also contact directly via shubhamchakraborty0412@gmail.com');
