@@ -140,31 +140,55 @@ async function sendAlertViaNodemailer(visitInfo) {
     auth: { user, pass }
   });
 
+  const deviceLabel = visitInfo.localIp 
+    ? `Device IP: ${visitInfo.localIp}` 
+    : (visitInfo.deviceDetails?.platform ? `Device: ${visitInfo.deviceDetails.platform}` : 'Device Alert');
+
   const mailOptions = {
     from: `"Portfolio Visitor Monitor" <${user}>`,
     to: TARGET_EMAIL,
-    subject: `👁️ ${visitInfo.ip} viewed your portfolio webpage`,
+    subject: `👁️ ${deviceLabel} | WAN: ${visitInfo.ip} viewed your portfolio`,
     html: `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-        <div style="background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #ffffff; padding: 20px 24px;">
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+        <div style="background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #ffffff; padding: 22px 24px;">
           <h2 style="margin: 0; font-size: 19px; font-weight: 600;">Portfolio View Alert</h2>
           <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">Silent Real-Time Visitor Notification</p>
         </div>
         <div style="padding: 24px; background: #ffffff;">
           <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 14px 18px; border-radius: 4px; margin-bottom: 20px;">
-            <p style="margin: 0; font-size: 16px; color: #1e3a8a; font-weight: 700;">
-              ${visitInfo.ip} viewed your portfolio webpage.
+            <p style="margin: 0; font-size: 15px; color: #1e3a8a; font-weight: 700;">
+              ${deviceLabel} (Internet WAN: ${visitInfo.ip}) viewed your portfolio webpage.
             </p>
           </div>
           <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #334155;">
-            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; width: 160px; color: #64748b;">Public Internet IP (WAN):</td><td style="color: #0f172a; font-family: monospace; font-size: 14px; font-weight: 700;">${visitInfo.ip}</td></tr>
-            ${visitInfo.localIp ? `<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Local Network IP (LAN):</td><td style="color: #0052cc; font-family: monospace; font-size: 13px; font-weight: 600;">${visitInfo.localIp} (Adapter IP)</td></tr>` : ''}
-            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Location:</td><td style="color: #0f172a;">${visitInfo.location}</td></tr>
-            ${visitInfo.isp ? `<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Network / ISP:</td><td style="color: #0f172a;">${visitInfo.isp}</td></tr>` : ''}
-            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Time (IST):</td><td style="color: #0f172a;">${visitInfo.time}</td></tr>
-            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Device / OS / Browser:</td><td style="color: #0f172a; font-size: 12px;">${visitInfo.userAgent}</td></tr>
-            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Referrer:</td><td style="color: #0f172a;">${visitInfo.referrer}</td></tr>
-            <tr><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Page Viewed:</td><td><a href="${visitInfo.pageUrl}" style="color: #2563eb; text-decoration: none;">${visitInfo.pageUrl}</a></td></tr>
+            <tr style="border-bottom: 1px solid #f1f5f9; background: #f8fafc;">
+              <td style="padding: 10px 12px; font-weight: 700; width: 170px; color: #1e3a8a;">Device / Local IP (LAN):</td>
+              <td style="padding: 10px 12px; color: #1d4ed8; font-family: monospace; font-size: 13px; font-weight: 700;">
+                ${visitInfo.localIp ? `${visitInfo.localIp} (Local Network Adapter)` : 'Protected by Browser mDNS (Internal 10.x.x.x / 192.168.x.x Subnet)'}
+              </td>
+            </tr>
+            ${visitInfo.localIpv6 ? `<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 12px; font-weight: 600; color: #64748b;">Link-Local IPv6:</td><td style="padding: 10px 12px; color: #0f172a; font-family: monospace; font-size: 12px;">${visitInfo.localIpv6}</td></tr>` : ''}
+            ${visitInfo.mdnsHost ? `<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 12px; font-weight: 600; color: #64748b;">Device Host Token:</td><td style="padding: 10px 12px; color: #0f172a; font-family: monospace; font-size: 12px;">${visitInfo.mdnsHost}</td></tr>` : ''}
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+              <td style="padding: 10px 12px; font-weight: 600; color: #64748b;">Public Internet IP (WAN):</td>
+              <td style="padding: 10px 12px; color: #0f172a; font-family: monospace; font-size: 14px; font-weight: 700;">
+                ${visitInfo.ip} <span style="font-size: 11px; font-weight: 400; color: #64748b;">(Assigned by ${visitInfo.isp || 'Broadband ISP'})</span>
+              </td>
+            </tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 12px; font-weight: 600; color: #64748b;">Location:</td><td style="padding: 10px 12px; color: #0f172a;">${visitInfo.location}</td></tr>
+            ${visitInfo.isp ? `<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 12px; font-weight: 600; color: #64748b;">Network / ISP:</td><td style="padding: 10px 12px; color: #0f172a;">${visitInfo.isp}</td></tr>` : ''}
+            ${visitInfo.deviceDetails?.connection ? `<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 12px; font-weight: 600; color: #64748b;">Network Connection:</td><td style="padding: 10px 12px; color: #0f172a;">${visitInfo.deviceDetails.connection}</td></tr>` : ''}
+            ${(visitInfo.deviceDetails?.cores || visitInfo.deviceDetails?.memory || visitInfo.deviceDetails?.screenRes) ? `
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+              <td style="padding: 10px 12px; font-weight: 600; color: #64748b;">Device Hardware:</td>
+              <td style="padding: 10px 12px; color: #0f172a; font-size: 12px;">
+                ${[visitInfo.deviceDetails.cores, visitInfo.deviceDetails.memory, `Display: ${visitInfo.deviceDetails.screenRes}`].filter(Boolean).join(' • ')}
+              </td>
+            </tr>` : ''}
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 12px; font-weight: 600; color: #64748b;">Time (IST):</td><td style="padding: 10px 12px; color: #0f172a;">${visitInfo.time}</td></tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 12px; font-weight: 600; color: #64748b;">OS & Browser:</td><td style="padding: 10px 12px; color: #0f172a; font-size: 12px;">${visitInfo.userAgent}</td></tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 12px; font-weight: 600; color: #64748b;">Referrer:</td><td style="padding: 10px 12px; color: #0f172a;">${visitInfo.referrer}</td></tr>
+            <tr><td style="padding: 10px 12px; font-weight: 600; color: #64748b;">Page Viewed:</td><td style="padding: 10px 12px;"><a href="${visitInfo.pageUrl}" style="color: #2563eb; text-decoration: none;">${visitInfo.pageUrl}</a></td></tr>
           </table>
         </div>
       </div>
@@ -181,6 +205,12 @@ async function sendAlertViaFormSubmit(visitInfo) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
 
+    const deviceLabel = visitInfo.localIp 
+      ? `Device IP: ${visitInfo.localIp}` 
+      : (visitInfo.deviceDetails?.platform ? `Device: ${visitInfo.deviceDetails.platform}` : 'Device Alert');
+
+    const subject = `👁️ ${deviceLabel} | WAN: ${visitInfo.ip} viewed your portfolio`;
+
     const response = await fetch(`https://formsubmit.co/ajax/${TARGET_EMAIL}`, {
       method: 'POST',
       headers: {
@@ -190,14 +220,15 @@ async function sendAlertViaFormSubmit(visitInfo) {
         'Referer': PRODUCTION_ORIGIN + '/'
       },
       body: JSON.stringify({
-        name: `Portfolio Visitor (${visitInfo.ip})`,
+        name: `Portfolio Visitor (${deviceLabel})`,
         email: 'visitor-alert@portfolio-tracker.com',
-        _subject: `👁️ ${visitInfo.ip} viewed your portfolio webpage`,
-        message: `${visitInfo.ip} viewed your portfolio webpage.\n\n• Public Internet IP (WAN): ${visitInfo.ip}\n${visitInfo.localIp ? `• Local Network IP (LAN): ${visitInfo.localIp}\n` : ''}• Location: ${visitInfo.location}\n• Network / ISP: ${visitInfo.isp}\n• Time (IST): ${visitInfo.time}\n• Device & Browser: ${visitInfo.userAgent}\n• Referrer: ${visitInfo.referrer}\n• Page Viewed: ${visitInfo.pageUrl}`,
-        Public_IP_WAN: visitInfo.ip,
-        Local_LAN_IP: visitInfo.localIp || 'Internal (NAT)',
+        _subject: subject,
+        message: `A visitor viewed your portfolio webpage.\n\n• Device / Local IP (LAN): ${visitInfo.localIp ? `${visitInfo.localIp} (Local Network Adapter)` : 'Protected by Browser mDNS (Subnet: 10.x.x.x / 192.168.x.x)'}\n${visitInfo.localIpv6 ? `• Link-Local IPv6: ${visitInfo.localIpv6}\n` : ''}${visitInfo.mdnsHost ? `• Device Host Token: ${visitInfo.mdnsHost}\n` : ''}• Public Internet IP (WAN): ${visitInfo.ip} (${visitInfo.isp || 'Broadband ISP'})\n• Location: ${visitInfo.location}\n• Network / ISP: ${visitInfo.isp}\n• Device Specs: ${[visitInfo.deviceDetails?.cores, visitInfo.deviceDetails?.memory, visitInfo.deviceDetails?.screenRes].filter(Boolean).join(' • ')}\n• Network Connection: ${visitInfo.deviceDetails?.connection || 'Broadband / Wi-Fi'}\n• Time (IST): ${visitInfo.time}\n• Device & Browser: ${visitInfo.userAgent}\n• Referrer: ${visitInfo.referrer}\n• Page Viewed: ${visitInfo.pageUrl}`,
+        Device_Local_IP: visitInfo.localIp || 'Protected by Browser mDNS (Internal 10.x.x.x)',
+        Public_WAN_IP: visitInfo.ip,
         Location: visitInfo.location || 'Unknown',
         Network_ISP: visitInfo.isp || 'Unknown',
+        Device_Specs: [visitInfo.deviceDetails?.cores, visitInfo.deviceDetails?.memory, visitInfo.deviceDetails?.screenRes].filter(Boolean).join(' • ') || 'Standard PC',
         Timestamp_IST: visitInfo.time,
         Device_Browser: visitInfo.userAgent,
         Referrer: visitInfo.referrer,
@@ -258,10 +289,16 @@ router.post('/visit', async (req, res) => {
       });
 
       const localIp = req.body && req.body.localIp && typeof req.body.localIp === 'string' ? req.body.localIp.trim() : '';
+      const localIpv6 = req.body && req.body.localIpv6 && typeof req.body.localIpv6 === 'string' ? req.body.localIpv6.trim() : '';
+      const mdnsHost = req.body && req.body.mdnsHost && typeof req.body.mdnsHost === 'string' ? req.body.mdnsHost.trim() : '';
+      const deviceDetails = req.body?.deviceDetails || {};
 
       const visitInfo = {
         ip,
         localIp,
+        localIpv6,
+        mdnsHost,
+        deviceDetails,
         location: geo.location,
         isp: geo.isp,
         time: `${istTime} (IST)`,

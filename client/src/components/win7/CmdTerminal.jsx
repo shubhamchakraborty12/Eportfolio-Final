@@ -26,6 +26,7 @@ export default function CmdTerminal({ onLaunchApp }) {
           newHistory.push(
             "SUPPORTED COMMANDS:",
             "  whoami       - Display current researcher & engineer identity",
+            "  ipconfig     - Display Windows IP and network adapter configuration",
             "  patent       - View published Indian Patent disclosure details",
             "  skills       - Print full-stack and machine learning competency index",
             "  projects     - List engineering projects and repositories",
@@ -35,6 +36,23 @@ export default function CmdTerminal({ onLaunchApp }) {
             "  resume       - Launch Adobe Acrobat Resume viewer",
             "  contact      - Launch Windows Live Mail composer",
             "  cls / clear  - Clear the command prompt window"
+          );
+          break;
+
+        case 'ipconfig':
+          newHistory.push(
+            "Windows IP Configuration",
+            "",
+            "Wireless LAN adapter Wi-Fi:",
+            "   Connection-specific DNS Suffix  . : lan",
+            "   Link-local IPv6 Address . . . . . : fe80::2111:c2de:3563:78b0%14",
+            "   IPv4 Address (Device LAN) . . . . : 10.17.101.54",
+            "   Subnet Mask . . . . . . . . . . . : 255.255.224.0",
+            "   Default Gateway . . . . . . . . . : 10.17.96.1",
+            "",
+            "Public WAN Network Gateway:",
+            "   Internet Routing (NAT)  . . . . . : 103.83.136.x (Optical Broadband, MH)",
+            "   Browser Privacy Shield  . . . . . : mDNS active (*.local host masking)"
           );
           break;
 

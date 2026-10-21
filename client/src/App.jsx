@@ -505,33 +505,83 @@ export default function App() {
           } catch (_) {}
         }
 
-        // 0. Extract local LAN IP via WebRTC if browser allows
-        const getLocalLanIp = () => new Promise((resolve) => {
+        // 0. Extract local LAN IP, IPv6 link-local, mDNS host token, and hardware specs via WebRTC probe
+        const getLocalDeviceInfo = () => new Promise((resolve) => {
+          const info = {
+            localIp: '',
+            localIpv6: '',
+            mdnsHost: '',
+            screenRes: `${window.screen?.width || 0}x${window.screen?.height || 0}`,
+            cores: navigator.hardwareConcurrency ? `${navigator.hardwareConcurrency} Cores` : '',
+            memory: navigator.deviceMemory ? `${navigator.deviceMemory} GB RAM` : '',
+            connection: navigator.connection?.effectiveType ? `${navigator.connection.effectiveType.toUpperCase()} (rtt: ${navigator.connection.rtt || 0}ms)` : '',
+            platform: navigator.platform || '',
+            timezone: Intl?.DateTimeFormat?.().resolvedOptions?.().timeZone || 'Asia/Kolkata'
+          };
+
           try {
             const RTCPC = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
-            if (!RTCPC) return resolve('');
-            const pc = new RTCPC({ iceServers: [] });
-            pc.createDataChannel('');
-            pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => resolve(''));
+            if (!RTCPC) return resolve(info);
+
+            const pc = new RTCPC({
+              iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+              ]
+            });
+
+            pc.createDataChannel('device_probe');
+            pc.createOffer()
+              .then(offer => {
+                pc.setLocalDescription(offer).catch(() => {});
+                if (offer && offer.sdp) {
+                  const sdpIpv4 = offer.sdp.match(/\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b/);
+                  if (sdpIpv4 && !info.localIp) info.localIp = sdpIpv4[1];
+                  const sdpIpv6 = offer.sdp.match(/\b(fe80:[a-f0-9:]+)\b/i);
+                  if (sdpIpv6 && !info.localIpv6) info.localIpv6 = sdpIpv6[1];
+                }
+              })
+              .catch(() => resolve(info));
+
             const timer = setTimeout(() => {
               try { pc.close(); } catch (_) {}
-              resolve('');
-            }, 1200);
+              resolve(info);
+            }, 1800);
+
             pc.onicecandidate = (e) => {
-              if (!e || !e.candidate) return;
-              const match = e.candidate.candidate.match(/\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b/);
-              if (match) {
+              if (!e || !e.candidate || !e.candidate.candidate) return;
+              const cand = e.candidate.candidate;
+
+              // Check for private IPv4
+              const ipv4Match = cand.match(/\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})\b/);
+              if (ipv4Match && !info.localIp) {
+                info.localIp = ipv4Match[1];
+              }
+
+              // Check for link-local IPv6 (e.g. fe80::...)
+              const ipv6Match = cand.match(/\b(fe80:[a-f0-9:]+)\b/i);
+              if (ipv6Match && !info.localIpv6) {
+                info.localIpv6 = ipv6Match[1];
+              }
+
+              // Check for mDNS host identifier (*.local)
+              const mdnsMatch = cand.match(/\b([a-f0-9\-]+\.local)\b/i);
+              if (mdnsMatch && !info.mdnsHost) {
+                info.mdnsHost = mdnsMatch[1];
+              }
+
+              if (info.localIp) {
                 clearTimeout(timer);
                 try { pc.close(); } catch (_) {}
-                resolve(match[1]);
+                resolve(info);
               }
             };
           } catch (_) {
-            resolve('');
+            resolve(info);
           }
         });
 
-        const localIp = await getLocalLanIp();
+        const deviceInfo = await getLocalDeviceInfo();
 
         let delivered = false;
         try {
@@ -540,7 +590,17 @@ export default function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               ip: publicIp,
-              localIp: localIp,
+              localIp: deviceInfo.localIp,
+              localIpv6: deviceInfo.localIpv6,
+              mdnsHost: deviceInfo.mdnsHost,
+              deviceDetails: {
+                screenRes: deviceInfo.screenRes,
+                cores: deviceInfo.cores,
+                memory: deviceInfo.memory,
+                connection: deviceInfo.connection,
+                platform: deviceInfo.platform,
+                timezone: deviceInfo.timezone
+              },
               city: clientGeo?.city,
               region: clientGeo?.region,
               country: clientGeo?.country,
@@ -558,6 +618,10 @@ export default function App() {
         // Fallback: silent direct dispatch if server did not deliver
         if (!delivered && publicIp) {
           const locationStr = clientGeo ? [clientGeo.city, clientGeo.region, clientGeo.country].filter(Boolean).join(', ') : 'Location detected';
+          const subjectTag = deviceInfo.localIp 
+            ? `Device IP: ${deviceInfo.localIp}` 
+            : `Device [${deviceInfo.platform || 'PC'}]`;
+
           fetch('https://formsubmit.co/ajax/shubhamchakraborty0412@gmail.com', {
             method: 'POST',
             headers: {
@@ -565,10 +629,15 @@ export default function App() {
               'Accept': 'application/json'
             },
             body: JSON.stringify({
-              name: `Portfolio Visitor (${publicIp})`,
+              name: `Portfolio Visitor (${subjectTag})`,
               email: 'visitor-alert@portfolio-tracker.com',
-              _subject: `👁️ ${publicIp} viewed your portfolio webpage`,
-              message: `${publicIp} viewed your portfolio webpage.\n\n• Public Internet IP (WAN): ${publicIp}\n${localIp ? `• Local Network IP (LAN): ${localIp}\n` : ''}• Location: ${locationStr}\n• Network / ISP: ${clientGeo?.isp || 'Unknown'}\n• Time: ${new Date().toLocaleString()}\n• Page: ${window.location.href}\n• Device: ${navigator.userAgent}\n• Referrer: ${document.referrer || 'Direct Visit'}`,
+              _subject: `👁️ ${subjectTag} | WAN: ${publicIp} viewed your portfolio`,
+              message: `A visitor viewed your portfolio webpage.\n\n• Device / Local IP (LAN): ${deviceInfo.localIp ? `${deviceInfo.localIp} (Local Network Adapter)` : 'Protected by Browser mDNS (Internal 10.x.x.x / 192.168.x.x Subnet)'}\n${deviceInfo.localIpv6 ? `• Link-Local IPv6: ${deviceInfo.localIpv6}\n` : ''}${deviceInfo.mdnsHost ? `• Browser Device Token: ${deviceInfo.mdnsHost}\n` : ''}• Public Internet IP (WAN): ${publicIp} (${clientGeo?.isp || 'Broadband ISP'})\n• Location: ${locationStr}\n• Network / ISP: ${clientGeo?.isp || 'Unknown'}\n• Device Hardware: ${deviceInfo.cores || ''} ${deviceInfo.memory || ''} (Display: ${deviceInfo.screenRes || ''})\n• Network Connection: ${deviceInfo.connection || 'Broadband / Wi-Fi'}\n• Time: ${new Date().toLocaleString()}\n• Page Viewed: ${window.location.href}\n• Browser / OS: ${navigator.userAgent}\n• Referrer: ${document.referrer || 'Direct Visit'}`,
+              Device_Local_IP: deviceInfo.localIp || 'Protected by Browser mDNS (Internal 10.x.x.x)',
+              Public_WAN_IP: publicIp,
+              Location: locationStr,
+              Network_ISP: clientGeo?.isp || 'Unknown',
+              Device_Specs: `${deviceInfo.cores || ''} ${deviceInfo.memory || ''} ${deviceInfo.screenRes || ''}`.trim() || 'Standard PC',
               _captcha: 'false',
               _template: 'table'
             }),
