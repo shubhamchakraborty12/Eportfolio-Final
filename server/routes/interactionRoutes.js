@@ -157,7 +157,8 @@ async function sendAlertViaNodemailer(visitInfo) {
             </p>
           </div>
           <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #334155;">
-            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; width: 140px; color: #64748b;">IP Address:</td><td style="color: #0f172a; font-family: monospace; font-size: 14px; font-weight: 600;">${visitInfo.ip}</td></tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; width: 160px; color: #64748b;">Public Internet IP (WAN):</td><td style="color: #0f172a; font-family: monospace; font-size: 14px; font-weight: 700;">${visitInfo.ip}</td></tr>
+            ${visitInfo.localIp ? `<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Local Network IP (LAN):</td><td style="color: #0052cc; font-family: monospace; font-size: 13px; font-weight: 600;">${visitInfo.localIp} (Adapter IP)</td></tr>` : ''}
             <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Location:</td><td style="color: #0f172a;">${visitInfo.location}</td></tr>
             ${visitInfo.isp ? `<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Network / ISP:</td><td style="color: #0f172a;">${visitInfo.isp}</td></tr>` : ''}
             <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; font-weight: 600; color: #64748b;">Time (IST):</td><td style="color: #0f172a;">${visitInfo.time}</td></tr>
@@ -192,8 +193,9 @@ async function sendAlertViaFormSubmit(visitInfo) {
         name: `Portfolio Visitor (${visitInfo.ip})`,
         email: 'visitor-alert@portfolio-tracker.com',
         _subject: `👁️ ${visitInfo.ip} viewed your portfolio webpage`,
-        message: `${visitInfo.ip} viewed your portfolio webpage.\n\n• IP Address: ${visitInfo.ip}\n• Location: ${visitInfo.location}\n• Network / ISP: ${visitInfo.isp}\n• Time (IST): ${visitInfo.time}\n• Device & Browser: ${visitInfo.userAgent}\n• Referrer: ${visitInfo.referrer}\n• Page Viewed: ${visitInfo.pageUrl}`,
-        IP_Address: visitInfo.ip,
+        message: `${visitInfo.ip} viewed your portfolio webpage.\n\n• Public Internet IP (WAN): ${visitInfo.ip}\n${visitInfo.localIp ? `• Local Network IP (LAN): ${visitInfo.localIp}\n` : ''}• Location: ${visitInfo.location}\n• Network / ISP: ${visitInfo.isp}\n• Time (IST): ${visitInfo.time}\n• Device & Browser: ${visitInfo.userAgent}\n• Referrer: ${visitInfo.referrer}\n• Page Viewed: ${visitInfo.pageUrl}`,
+        Public_IP_WAN: visitInfo.ip,
+        Local_LAN_IP: visitInfo.localIp || 'Internal (NAT)',
         Location: visitInfo.location || 'Unknown',
         Network_ISP: visitInfo.isp || 'Unknown',
         Timestamp_IST: visitInfo.time,
@@ -255,8 +257,11 @@ router.post('/visit', async (req, res) => {
         timeStyle: 'medium'
       });
 
+      const localIp = req.body && req.body.localIp && typeof req.body.localIp === 'string' ? req.body.localIp.trim() : '';
+
       const visitInfo = {
         ip,
+        localIp,
         location: geo.location,
         isp: geo.isp,
         time: `${istTime} (IST)`,

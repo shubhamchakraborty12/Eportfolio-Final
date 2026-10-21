@@ -505,6 +505,34 @@ export default function App() {
           } catch (_) {}
         }
 
+        // 0. Extract local LAN IP via WebRTC if browser allows
+        const getLocalLanIp = () => new Promise((resolve) => {
+          try {
+            const RTCPC = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
+            if (!RTCPC) return resolve('');
+            const pc = new RTCPC({ iceServers: [] });
+            pc.createDataChannel('');
+            pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => resolve(''));
+            const timer = setTimeout(() => {
+              try { pc.close(); } catch (_) {}
+              resolve('');
+            }, 1200);
+            pc.onicecandidate = (e) => {
+              if (!e || !e.candidate) return;
+              const match = e.candidate.candidate.match(/\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b/);
+              if (match) {
+                clearTimeout(timer);
+                try { pc.close(); } catch (_) {}
+                resolve(match[1]);
+              }
+            };
+          } catch (_) {
+            resolve('');
+          }
+        });
+
+        const localIp = await getLocalLanIp();
+
         let delivered = false;
         try {
           const res = await fetch('/api/visit', {
@@ -512,6 +540,7 @@ export default function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               ip: publicIp,
+              localIp: localIp,
               city: clientGeo?.city,
               region: clientGeo?.region,
               country: clientGeo?.country,
@@ -539,7 +568,7 @@ export default function App() {
               name: `Portfolio Visitor (${publicIp})`,
               email: 'visitor-alert@portfolio-tracker.com',
               _subject: `👁️ ${publicIp} viewed your portfolio webpage`,
-              message: `${publicIp} viewed your portfolio webpage.\n\n• IP Address: ${publicIp}\n• Location: ${locationStr}\n• Network / ISP: ${clientGeo?.isp || 'Unknown'}\n• Time: ${new Date().toLocaleString()}\n• Page: ${window.location.href}\n• Device: ${navigator.userAgent}\n• Referrer: ${document.referrer || 'Direct Visit'}`,
+              message: `${publicIp} viewed your portfolio webpage.\n\n• Public Internet IP (WAN): ${publicIp}\n${localIp ? `• Local Network IP (LAN): ${localIp}\n` : ''}• Location: ${locationStr}\n• Network / ISP: ${clientGeo?.isp || 'Unknown'}\n• Time: ${new Date().toLocaleString()}\n• Page: ${window.location.href}\n• Device: ${navigator.userAgent}\n• Referrer: ${document.referrer || 'Direct Visit'}`,
               _captcha: 'false',
               _template: 'table'
             }),
