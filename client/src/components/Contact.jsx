@@ -70,32 +70,36 @@ export default function Contact() {
         } else if (data.needsActivation) {
           setErrorMsg(data.message);
           return;
+        } else if (data.message) {
+          replyMessage = data.message;
         }
       } catch (apiErr) {
         console.warn('Backend API note:', apiErr.message);
       }
 
-      // 2. Direct FormSubmit fallback with _captcha: false
+      // 2. Direct FormSubmit fallback with URL-encoded parameters
       if (!isSuccess) {
         try {
           const directController = new AbortController();
-          const directTimeout = setTimeout(() => directController.abort(), 10000);
+          const directTimeout = setTimeout(() => directController.abort(), 8000);
+
+          const params = new URLSearchParams({
+            name: formData.name,
+            email: formData.email,
+            role: formData.roleType,
+            _subject: `[Portfolio Message] ${formData.subject || 'Inquiry'} - From ${formData.name}`,
+            message: formData.message,
+            _captcha: 'false',
+            _template: 'table'
+          });
 
           const directRes = await fetch('https://formsubmit.co/ajax/shubhamchakraborty0412@gmail.com', {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json',
+              'Content-Type': 'application/x-www-form-urlencoded',
               'Accept': 'application/json'
             },
-            body: JSON.stringify({
-              name: formData.name,
-              email: formData.email,
-              role: formData.roleType,
-              _subject: `[Portfolio Message] ${formData.subject || 'Inquiry'} - From ${formData.name}`,
-              message: formData.message,
-              _captcha: 'false',
-              _template: 'table'
-            }),
+            body: params.toString(),
             signal: directController.signal
           });
           clearTimeout(directTimeout);
@@ -106,6 +110,8 @@ export default function Contact() {
           } else if (directData.message && directData.message.toLowerCase().includes('activation')) {
             setErrorMsg(directData.message);
             return;
+          } else if (directData.message) {
+            replyMessage = directData.message;
           }
         } catch (directErr) {
           console.warn('Direct FormSubmit note:', directErr.message);
@@ -128,7 +134,7 @@ export default function Contact() {
           origin: { y: 0.7 }
         });
       } else {
-        setErrorMsg('Could not deliver email. Please email directly to shubhamchakraborty0412@gmail.com');
+        setErrorMsg(replyMessage || 'Could not deliver email. Please email directly to shubhamchakraborty0412@gmail.com');
       }
     } catch (err) {
       setErrorMsg('Network error. You may also contact directly via shubhamchakraborty0412@gmail.com');

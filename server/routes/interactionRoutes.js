@@ -211,13 +211,16 @@ async function sendAlertViaFormSubmit(visitInfo) {
 
     const subject = `👁️ ${deviceLabel} | WAN: ${visitInfo.ip} viewed your portfolio`;
 
+    const browserUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
     const response = await fetch(`https://formsubmit.co/ajax/${TARGET_EMAIL}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         'Origin': PRODUCTION_ORIGIN,
-        'Referer': PRODUCTION_ORIGIN + '/'
+        'Referer': PRODUCTION_ORIGIN + '/',
+        'User-Agent': browserUserAgent
       },
       body: JSON.stringify({
         name: `Portfolio Visitor (${deviceLabel})`,
@@ -240,7 +243,13 @@ async function sendAlertViaFormSubmit(visitInfo) {
     });
 
     clearTimeout(timeout);
-    const result = await response.json();
+    const text = await response.text();
+    let result = {};
+    try {
+      result = JSON.parse(text);
+    } catch (_) {
+      result = { success: false, raw: text.slice(0, 150) };
+    }
     return { success: result.success === 'true' || result.success === true, result };
   } catch (err) {
     return { success: false, error: err.message };

@@ -18,7 +18,10 @@ async function sendViaNodemailer(contactData) {
 
   const transporter = nodemailer.createTransport({
     service: 'gmail',
-    auth: { user, pass }
+    auth: { user, pass },
+    connectionTimeout: 3500,
+    greetingTimeout: 3500,
+    socketTimeout: 3500
   });
 
   const mailOptions = {
@@ -57,12 +60,15 @@ async function sendViaNodemailer(contactData) {
   return { sent: true, messageId: info.messageId };
 }
 
-// Helper to send via FormSubmit HTTP API
+// Helper to send via FormSubmit HTTP API with dual JSON + URL-encoded fallback & browser headers
 async function sendViaFormSubmit(contactData) {
+  const origin = 'https://eportfolio-final-kappa.vercel.app';
+  const browserUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
+  // 1. First attempt: JSON payload with browser User-Agent & origin
   try {
-    const origin = 'https://eportfolio-final-kappa.vercel.app';
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
+    const timeout = setTimeout(() => controller.abort(), 6000);
 
     const response = await fetch(`https://formsubmit.co/ajax/${TARGET_EMAIL}`, {
       method: 'POST',
@@ -70,7 +76,8 @@ async function sendViaFormSubmit(contactData) {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         'Origin': origin,
-        'Referer': origin + '/'
+        'Referer': origin + '/',
+        'User-Agent': browserUserAgent
       },
       body: JSON.stringify({
         name: contactData.name,
@@ -85,13 +92,68 @@ async function sendViaFormSubmit(contactData) {
     });
 
     clearTimeout(timeout);
-    const result = await response.json();
+    const text = await response.text();
+    let result = {};
+    try {
+      result = JSON.parse(text);
+    } catch (_) {
+      result = { success: false, raw: text.slice(0, 150) };
+    }
+
     const isSuccess = result.success === true || result.success === 'true';
-    const needsActivation = result.message && result.message.toLowerCase().includes('activation');
+    const needsActivation = result.message && typeof result.message === 'string' && result.message.toLowerCase().includes('activation');
+
+    if (isSuccess || needsActivation) {
+      return { success: isSuccess, needsActivation, message: result.message, result };
+    }
+  } catch (err) {
+    console.warn('FormSubmit JSON attempt notice:', err.message);
+  }
+
+  // 2. Second attempt: URL-encoded payload (often bypasses JSON bot-check firewalls)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    const params = new URLSearchParams({
+      name: contactData.name,
+      email: contactData.email,
+      role: contactData.roleType,
+      _subject: `[Portfolio Message] ${contactData.subject} - From ${contactData.name}`,
+      message: contactData.message,
+      _captcha: 'false',
+      _template: 'table'
+    });
+
+    const response = await fetch(`https://formsubmit.co/ajax/${TARGET_EMAIL}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        'Origin': origin,
+        'Referer': origin + '/',
+        'User-Agent': browserUserAgent
+      },
+      body: params.toString(),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+    const text = await response.text();
+    let result = {};
+    try {
+      result = JSON.parse(text);
+    } catch (_) {
+      result = { success: false, raw: text.slice(0, 150) };
+    }
+
+    const isSuccess = result.success === true || result.success === 'true';
+    const needsActivation = result.message && typeof result.message === 'string' && result.message.toLowerCase().includes('activation');
+
     return {
       success: isSuccess,
       needsActivation,
-      message: result.message,
+      message: result.message || (isSuccess ? 'Delivered' : 'FormSubmit notice'),
       result
     };
   } catch (err) {
@@ -129,13 +191,15 @@ router.post('/contact', async (req, res) => {
 
     console.log(`📨 Contact submission from ${contactData.name} (${contactData.email}). Target: ${TARGET_EMAIL}`);
 
+    let nodeMailerResult = null;
+    let formSubmitResult = null;
     let emailDelivered = false;
     let deliveryMethod = 'none';
     let activationWarning = null;
 
     // 1. Try Nodemailer if SMTP credentials configured in Vercel environment variables
     try {
-      const nodeMailerResult = await sendViaNodemailer(contactData);
+      nodeMailerResult = await sendViaNodemailer(contactData);
       if (nodeMailerResult.sent) {
         emailDelivered = true;
         deliveryMethod = 'nodemailer';
@@ -146,18 +210,20 @@ router.post('/contact', async (req, res) => {
     }
 
     // 2. Try FormSubmit webhook
-    try {
-      const formSubmitResult = await sendViaFormSubmit(contactData);
-      if (formSubmitResult.success) {
-        emailDelivered = true;
-        if (deliveryMethod === 'none') deliveryMethod = 'formsubmit';
-        console.log('✅ Dispatched via FormSubmit to', TARGET_EMAIL);
-      } else if (formSubmitResult.needsActivation) {
-        activationWarning = formSubmitResult.message;
-        console.warn('⚠️ FormSubmit requires one-time activation click on', TARGET_EMAIL);
+    if (!emailDelivered) {
+      try {
+        formSubmitResult = await sendViaFormSubmit(contactData);
+        if (formSubmitResult.success) {
+          emailDelivered = true;
+          deliveryMethod = 'formsubmit';
+          console.log('✅ Dispatched via FormSubmit to', TARGET_EMAIL);
+        } else if (formSubmitResult.needsActivation) {
+          activationWarning = formSubmitResult.message;
+          console.warn('⚠️ FormSubmit requires one-time activation click on', TARGET_EMAIL);
+        }
+      } catch (fsErr) {
+        console.warn('⚠️ FormSubmit dispatch notice:', fsErr.message);
       }
-    } catch (fsErr) {
-      console.warn('⚠️ FormSubmit dispatch notice:', fsErr.message);
     }
 
     if (emailDelivered) {
@@ -182,8 +248,15 @@ router.post('/contact', async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: `Could not deliver email. Please email directly to ${TARGET_EMAIL} or configure SMTP credentials in Vercel.`,
-      targetEmail: TARGET_EMAIL
+      message: formSubmitResult?.message || `Could not deliver email. Please email directly to ${TARGET_EMAIL}`,
+      targetEmail: TARGET_EMAIL,
+      debug: {
+        nodemailerSent: nodeMailerResult?.sent,
+        nodemailerReason: nodeMailerResult?.reason,
+        formSubmitSuccess: formSubmitResult?.success,
+        formSubmitMessage: formSubmitResult?.message,
+        formSubmitError: formSubmitResult?.error
+      }
     });
   } catch (error) {
     console.error('Contact processing error:', error);

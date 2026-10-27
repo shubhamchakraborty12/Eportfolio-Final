@@ -56,6 +56,8 @@ export default function WindowsLiveMail() {
         } else if (data.needsActivation) {
           setErrorMsg(data.message);
           return;
+        } else if (data.message) {
+          replyMessage = data.message;
         }
       } catch (apiErr) {
         console.warn('Backend API note:', apiErr.message);
@@ -65,23 +67,25 @@ export default function WindowsLiveMail() {
       if (!isSuccess) {
         try {
           const directController = new AbortController();
-          const directTimeout = setTimeout(() => directController.abort(), 10000);
+          const directTimeout = setTimeout(() => directController.abort(), 8000);
+
+          const params = new URLSearchParams({
+            name: formData.name,
+            email: formData.email,
+            role: formData.roleType,
+            _subject: `[Portfolio Message] ${formData.subject} - From ${formData.name}`,
+            message: formData.message,
+            _captcha: 'false',
+            _template: 'table'
+          });
 
           const directRes = await fetch('https://formsubmit.co/ajax/shubhamchakraborty0412@gmail.com', {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json',
+              'Content-Type': 'application/x-www-form-urlencoded',
               'Accept': 'application/json'
             },
-            body: JSON.stringify({
-              name: formData.name,
-              email: formData.email,
-              role: formData.roleType,
-              _subject: `[Portfolio Message] ${formData.subject} - From ${formData.name}`,
-              message: formData.message,
-              _captcha: 'false',
-              _template: 'table'
-            }),
+            body: params.toString(),
             signal: directController.signal
           });
           clearTimeout(directTimeout);
@@ -92,6 +96,8 @@ export default function WindowsLiveMail() {
           } else if (directData.message && directData.message.toLowerCase().includes('activation')) {
             setErrorMsg(directData.message);
             return;
+          } else if (directData.message) {
+            replyMessage = directData.message;
           }
         } catch (directErr) {
           console.warn('Direct FormSubmit note:', directErr.message);
@@ -114,7 +120,7 @@ export default function WindowsLiveMail() {
           origin: { y: 0.6 }
         });
       } else {
-        setErrorMsg('Could not deliver email. Please email directly to shubhamchakraborty0412@gmail.com');
+        setErrorMsg(replyMessage || 'Could not deliver email. You can send directly using your default mail app or write to shubhamchakraborty0412@gmail.com');
       }
     } catch (err) {
       setErrorMsg('Connection failed. You can also write directly to shubhamchakraborty0412@gmail.com');
@@ -147,9 +153,26 @@ export default function WindowsLiveMail() {
       )}
 
       {errorMsg && (
-        <div style={{ background: '#fef2f2', borderBottom: '1px solid #fecaca', color: '#991b1b', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px' }}>
-          <AlertCircle size={14} color="#dc2626" />
-          <span>{errorMsg}</span>
+        <div style={{ background: '#fef2f2', borderBottom: '1px solid #fecaca', color: '#991b1b', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '11px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertCircle size={14} color="#dc2626" />
+            <span>{errorMsg}</span>
+          </div>
+          <a
+            href={`mailto:shubhamchakraborty0412@gmail.com?subject=${encodeURIComponent(formData.subject || 'Portfolio Inquiry')}&body=${encodeURIComponent(`Name: ${formData.name}\nEmail: ${formData.email}\nScope: ${formData.roleType}\n\n${formData.message}`)}`}
+            style={{
+              background: '#0052cc',
+              color: '#ffffff',
+              padding: '3px 8px',
+              borderRadius: '3px',
+              textDecoration: 'none',
+              fontWeight: '600',
+              fontSize: '10px',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            Open in Mail Client
+          </a>
         </div>
       )}
 
