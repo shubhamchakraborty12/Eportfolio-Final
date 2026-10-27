@@ -93,11 +93,11 @@ async function sendViaFormSubmit(contactData) {
 
     clearTimeout(timeout);
     const text = await response.text();
-    let result = {};
+    let result = { status: response.status };
     try {
-      result = JSON.parse(text);
+      result = { ...result, ...JSON.parse(text) };
     } catch (_) {
-      result = { success: false, raw: text.slice(0, 150) };
+      result = { ...result, success: false, raw: text.slice(0, 300) };
     }
 
     const isSuccess = result.success === true || result.success === 'true';
@@ -140,11 +140,11 @@ async function sendViaFormSubmit(contactData) {
 
     clearTimeout(timeout);
     const text = await response.text();
-    let result = {};
+    let result = { status: response.status };
     try {
-      result = JSON.parse(text);
+      result = { ...result, ...JSON.parse(text) };
     } catch (_) {
-      result = { success: false, raw: text.slice(0, 150) };
+      result = { ...result, success: false, raw: text.slice(0, 300) };
     }
 
     const isSuccess = result.success === true || result.success === 'true';
@@ -153,7 +153,7 @@ async function sendViaFormSubmit(contactData) {
     return {
       success: isSuccess,
       needsActivation,
-      message: result.message || (isSuccess ? 'Delivered' : 'FormSubmit notice'),
+      message: result.message || (isSuccess ? 'Delivered' : `FormSubmit returned status ${response.status}`),
       result
     };
   } catch (err) {
@@ -255,7 +255,8 @@ router.post('/contact', async (req, res) => {
         nodemailerReason: nodeMailerResult?.reason,
         formSubmitSuccess: formSubmitResult?.success,
         formSubmitMessage: formSubmitResult?.message,
-        formSubmitError: formSubmitResult?.error
+        formSubmitError: formSubmitResult?.error,
+        formSubmitResultDetails: formSubmitResult?.result
       }
     });
   } catch (error) {
